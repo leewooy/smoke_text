@@ -17,34 +17,33 @@ class SmokeText extends StatefulWidget {
 class _SmokeTextState extends State<SmokeText> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _opacityAnimation;
-  late Animation<double> _yOffsetAnimation;
-  late Animation<double> _xOffsetAnimation;
-  final Random random = Random();
+  late double _windDirection;
 
   @override
   void initState() {
     super.initState();
+    _generateWindDirection();
+    _setupAnimations();
+  }
+
+  void _generateWindDirection() {
+    _windDirection = Random().nextDouble() * 2 * pi;
+  }
+
+  void _setupAnimations() {
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 3),
+      duration: const Duration(milliseconds: 1500),
     );
 
     _opacityAnimation = Tween<double>(begin: 1.0, end: 0.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOut),
     );
 
-    _yOffsetAnimation = Tween<double>(begin: 0.0, end: -100.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
-
-    _xOffsetAnimation = Tween<double>(begin: 0.0, end: 50.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
-
     _controller.forward();
   }
 
-  @override 
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -56,8 +55,8 @@ class _SmokeTextState extends State<SmokeText> with SingleTickerProviderStateMix
               painter: SmokePainter(
                 text: widget.text,
                 opacity: _opacityAnimation.value,
-                yOffset: _yOffsetAnimation.value,
-                xOffset: _xOffsetAnimation.value,
+                windDirection: _windDirection,
+                progress: _controller.value,
               ),
             );
           },
@@ -76,15 +75,14 @@ class _SmokeTextState extends State<SmokeText> with SingleTickerProviderStateMix
 class SmokePainter extends CustomPainter {
   final String text;
   final double opacity;
-  final double yOffset;
-  final double xOffset;
-  final Random random = Random();
+  final double windDirection;
+  final double progress;
 
   SmokePainter({
     required this.text,
     required this.opacity,
-    required this.yOffset,
-    required this.xOffset,
+    required this.windDirection,
+    required this.progress,
   });
 
   @override
@@ -97,42 +95,58 @@ class SmokePainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     )..layout();
 
-    final textSize = textPainter.size; // 텍스트 크기 계산
+    final textSize = textPainter.size;
+    final textPosition = Offset(
+      size.width / 2 - textSize.width / 2,
+      size.height / 2 - textSize.height / 2
+    );
 
-    final textPosition = Offset(size.width / 2 - textSize.width / 2,
-        size.height / 2 - textSize.height / 2);
+    final int copies = 8;
+    final double maxSpread = 30.0;
+    
+    for (int copy = 0; copy < copies; copy++) {
+      final double spread = (progress * maxSpread * copy) / copies;
+      final double layerOpacity = opacity * (1 - (copy / copies));
 
-    for (int i = 0; i < text.length; i++) {
-      final charPosition = Offset(
-        textPosition.dx + textPainter.width * (i / text.length),
-        textPosition.dy,
-      );
+      // 바람 방향을 중심으로 한 원뿔 형태로 퍼지게 함
+      double angleVariation = pi / 4; // 퍼지는 각도 범위
+      for (double angle = windDirection - angleVariation; 
+           angle <= windDirection + angleVariation; 
+           angle += angleVariation / 4) {
+        
+        final xSpread = cos(angle) * spread * (1.0 + progress);
+        final ySpread = sin(angle) * spread * (1.0 + progress);
 
-      final randomXOffset = (random.nextDouble() - 0.5) * xOffset;
+        final builder = ui.ParagraphBuilder(ui.ParagraphStyle(
+          textAlign: TextAlign.left,
+          textDirection: TextDirection.ltr,
+        ));
+        
+        builder.pushStyle(ui.TextStyle(
+          color: Colors.white.withAlpha((layerOpacity * 255 / copies).toInt()),
+          fontSize: 20,
+        ));
+        
+        builder.addText(text);
+        final paragraph = builder.build();
+        paragraph.layout(ui.ParagraphConstraints(width: size.width));
 
-      final builder = ui.ParagraphBuilder(ui.ParagraphStyle(
-        textAlign: TextAlign.left,
-        textDirection: TextDirection.ltr,
-      ));
-      builder.pushStyle(ui.TextStyle(
-        color: Colors.white.withAlpha((opacity * 255).toInt()),
-        fontSize: 20,
-      ));
-      builder.addText(text[i]);
-      final paragraph = builder.build();
-      paragraph
-          .layout(ui.ParagraphConstraints(width: textSize.width)); // 텍스트 너비에 맞춤
-
-      canvas.drawParagraph(paragraph,
-          Offset(charPosition.dx + randomXOffset, charPosition.dy + yOffset));
+        canvas.drawParagraph(
+          paragraph,
+          Offset(
+            textPosition.dx + xSpread,
+            textPosition.dy + ySpread
+          )
+        );
+      }
     }
   }
 
   @override
   bool shouldRepaint(covariant SmokePainter oldDelegate) {
     return oldDelegate.opacity != opacity ||
-        oldDelegate.yOffset != yOffset ||
-        oldDelegate.xOffset != xOffset;
+        oldDelegate.windDirection != windDirection ||
+        oldDelegate.progress != progress;
   }
 }
 
@@ -161,29 +175,29 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int num = 0;
-  Key _smokeKey = UniqueKey(); // 키 추가
+  Key _smokeKey = UniqueKey();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // 배경색 추가
+      backgroundColor: Colors.black,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Text(
               'Click button',
-              style: TextStyle(color: Colors.white), // 텍스트 색상 추가
+              style: TextStyle(color: Colors.white),
             ),
             Text(
               '$num',
-              style: TextStyle(color: Colors.white), // 텍스트 색상 추가
+              style: const TextStyle(color: Colors.white),
             ),
             ElevatedButton(
               onPressed: () {
                 setState(() {
                   num++;
-                  _smokeKey = UniqueKey(); // 버튼 클릭시 새로운 키 생성
+                  _smokeKey = UniqueKey(); // 새로운 위젯을 생성하여 새로운 바람 방향 생성
                 });
               },
               child: const Text('Click me'),
@@ -192,7 +206,7 @@ class _MyHomePageState extends State<MyHomePage> {
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 100),
               child: SmokeText(
-                key: _smokeKey, // 키 설정
+                key: _smokeKey,
                 text: '$num',
               ),
             ),
